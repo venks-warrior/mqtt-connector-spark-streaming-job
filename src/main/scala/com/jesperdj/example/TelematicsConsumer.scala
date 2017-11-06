@@ -18,23 +18,24 @@ object TelematicsConsumer {
 
   def main(args: Array[String]) {
 
-      if (args.length < 2) {
-        System.err.println(
-          "Usage: MQTTWordCount <MqttbrokerUrl> <topic>")
-        System.exit(1)
-      }
+    if (args.length < 2) {
+      System.err.println(
+        "Usage: MQTTWordCount <MqttbrokerUrl> <topic>")
+      System.exit(1)
+    }
 
-      val sparkConf = new SparkConf().setAppName("MQTTWordCount").set("spark.driver.allowMultipleContexts", "true")
-      val sparkContext = new SparkContext(sparkConf)
-      val ssc = new StreamingContext(sparkContext, Seconds(20))
+    val sparkConf = new SparkConf().setAppName("MQTTWordCount").set("spark.driver.allowMultipleContexts", "true")
+    val sparkContext = new SparkContext(sparkConf)
+    val ssc = new StreamingContext(sparkContext, Seconds(20))
 
-      val lines = MQTTUtils.createStream(ssc, "tcp://localhost:1883", "test", StorageLevel.MEMORY_ONLY_SER_2)
-      val words = lines.flatMap(x => x.toString.split(" "))
-      val wordCounts = words.map(x => (x, 1)).reduceByKey(_ + _)
-      print("******** printing wordCount")
-      wordCounts.print()
-      val kafkaOpTopic = "kafka-spark"
-      val kafkaBrokers = "localhost:9092" // comma separated list of broker:host can be given
+    val lines = MQTTUtils.createStream(ssc, "tcp://localhost:1883", "test", StorageLevel.MEMORY_ONLY_SER_2)
+    val words = lines.flatMap(x => x.toString.split(" "))
+    val wordCounts = words.map(x => (x, 1)).reduceByKey(_ + _)
+    print("******** printing wordCount")
+    wordCounts.print()
+    // ToDo move to config
+    val kafkaOpTopic = "kafka-spark"
+    val kafkaBrokers = "localhost:9092" // comma separated list of broker:host can be given
     try {
       lines.foreachRDD(rdd => {
         System.out.println("# RDD events received = " + rdd.count() + " no. of RDD partitions = " + rdd.getNumPartitions)
@@ -44,15 +45,15 @@ object TelematicsConsumer {
           //print("#records size in partition "+partition.size +partition.seq)
           val props = new util.HashMap[String, Object]()
           props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBrokers)
-          props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, classOf[StringSerializer])
-          props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, classOf[StringSerializer])
+          props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, classOf[ByteArraySerializer])
+          props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, classOf[ByteArraySerializer])
 
-          val kafkaProducer = new KafkaProducer[String, String](props)
+          val kafkaProducer = new KafkaProducer[Array[Byte], Array[Byte]](props)
           partition.foreach(record => {
-            val data = record.toString
+            val data = record.getBytes()
             // As as debugging technique, users can write to DBFS to verify that records are being written out
             // dbutils.fs.put("/tmp/test_kafka_output",data,true)
-            val message = new ProducerRecord[String, String](kafkaOpTopic, null, data)
+            val message = new ProducerRecord[Array[Byte], Array[Byte]](kafkaOpTopic, null, data)
             println("producing messages to kafka on topic" + s" ${kafkaOpTopic}, brokers" + s" ${kafkaBrokers}")
             kafkaProducer.send(message)
           })
